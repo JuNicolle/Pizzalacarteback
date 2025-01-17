@@ -1,1 +1,6 @@
-config.json
+
+# Ignorer les fichiers et dossiers ci-dessous
+config/config.js
+bdd.js
+config/config.json
+node_modules
