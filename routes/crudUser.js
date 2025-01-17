@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const auth = require("../middleware/auth");
 const config = require("../config/config.json");
 const MailService = require("../services/mail.services");
+const { authentification } = require("../middleware/auth");
 
 
 // route creation utilisateur entre le code et la BDD - FONCTIONNE
@@ -246,6 +247,18 @@ router.post('/updateUser/:id', (req, res) => {
         });
     })};
   });
+
+// Pour recuperer son profil
+router.get("/me", authentification, (req, res) => {
+  const sql = 'SELECT * FROM users WHERE id_user = ?;';
+  bdd.query(sql, [req.id_user], (error, result) => {
+    if (error){
+      res.status(500).send("Erreur serveur");
+    } else {
+      res.status(200).json(result[0]);
+    }
+  });
+});
 
 // Route pour demander une réinitialisation de mot de passe
 router.post("/forgotPassword", async (req, res) => {
