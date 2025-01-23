@@ -50,7 +50,19 @@ router.post("/createProduct", auth.authentification, async (req, res) => {
 router.get("/readProducts", (req, res) => {
   const readProducts =
     "SELECT name, category_id, description, price, image_url, allergens, availability FROM products;";
-  bdd.query(readProducts, [category_id], (error, results) => {
+  bdd.query(readProducts, [], (error, results) => {
+    if (error) throw error;
+    res.json(results);
+  });
+});
+
+// Route pour recuperer un produit par son id - FONCTIONNE
+
+router.get("/readProductById/:idProduct", (req, res) => {
+  const { idProduct } = req.params;
+  const readProductById =
+    "SELECT name, category_id, description, price, image_url, allergens, availability FROM products WHERE id_product = ?;";
+  bdd.query(readProductById, [idProduct], (error, results) => {
     if (error) throw error;
     res.json(results);
   });
@@ -71,17 +83,6 @@ router.get("/readProductsByCategory/:category_id", (req, res) => {
   });
 });
 
-// Route pour recuperer un produit par son id - FONCTIONNE
-
-router.get("/readProductById/:idProduct", (req, res) => {
-  const { idProduct } = req.params;
-  const readProductById =
-    "SELECT name, category_id, description, price, image_url, allergens, availability FROM products WHERE id_product = ?;";
-  bdd.query(readProductById, [idProduct], (error, results) => {
-    if (error) throw error;
-    res.json(results);
-  });
-});
 
 // route suppression d'un produit - FONCTIONNE
 
@@ -169,5 +170,6 @@ router.post("/updateProduct/:id", auth.authentification, (req, res) => {
     );
   }
 });
+
 
 module.exports = router;
