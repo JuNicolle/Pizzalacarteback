@@ -6,6 +6,7 @@ const crudProduct = require("./routes/crudProduct");
 const crudCategory = require("./routes/crudCategory");
 const crudOrder = require("./routes/crudOrder");
 const crudLocation = require("./routes/crudLocation");
+const crudOrderItems = require("./routes/crudOrderItems")
 const path = require("path");
 const productRoutes = require("./routes/productRoutes");
 const db = require("./bdd");
@@ -19,17 +20,15 @@ app.use(express.json());
 
 app.use(bodyParser.json());
 app.use(express.urlencoded());
+
 app.use('/images', express.static(path.join(__dirname, 'images')));
 app.use('/api/products', (req, res, next) => {
   req.db = db; // votre connexion db existante
   next();
 }, productRoutes);
 
-console.log('Image path:', imagePath);
 app.use('/images', express.static(imagePath));
 const fs = require('fs');
-console.log('Fichier existe:', fs.existsSync(path.join(__dirname, 'image', 'cocacola.png')));
-
 
 
 app.use(
@@ -40,7 +39,7 @@ app.use(
   })
 );
 
-app.use("/pizzalacarte", crudUser, crudProduct, crudCategory, crudLocation, crudOrder);
+app.use("/pizzalacarte", crudUser, crudProduct, crudCategory, crudLocation, crudOrder, crudOrderItems);
 
 app.listen(3000, () => {
   console.log("Serveur lancé sur le port 3000");

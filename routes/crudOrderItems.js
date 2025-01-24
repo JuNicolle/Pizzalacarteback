@@ -8,47 +8,75 @@ router.post("/addToOrder", auth.authentification, async (req, res) => {
     try {
         const { order_id, product_id, quantity, special_instructions } = req.body;
         
-        // Vérifier si le produit existe et est disponible
-        const checkProduct = "SELECT availability FROM products WHERE id_product = ?";
-        bdd.query(checkProduct, [product_id], (error, results) => {
+        // Vérifier si la commande existe
+        const checkOrder = "SELECT id_order FROM orders WHERE id_order = ?";
+        bdd.query(checkOrder, [order_id], (error, orderResults) => {
             if (error) {
-                return res.status(500).json({ error: "Erreur serveur" });
+                console.error("Erreur vérification commande:", error);
+                return res.status(500).json({ error: "Erreur lors de la vérification de la commande" });
             }
-            if (results.length === 0 || !results[0].availability) {
-                return res.status(400).json({ error: "Produit non disponible" });
+            if (orderResults.length === 0) {
+                return res.status(404).json({ error: "Commande non trouvée" });
             }
 
-            // Ajouter le produit à la commande
-            const addToOrder = `
-                INSERT INTO orders_item (order_id, product_id, quantity, special_instructions) 
-                VALUES (?, ?, ?, ?)
-            `;
-            bdd.query(addToOrder, [order_id, product_id, quantity, special_instructions], (error, results) => {
+            // Vérifier si le produit existe et est disponible
+            const checkProduct = "SELECT id_product, availability FROM products WHERE id_product = ?";
+            bdd.query(checkProduct, [product_id], (error, productResults) => {
                 if (error) {
-                    return res.status(500).json({ error: "Erreur lors de l'ajout du produit" });
+                    console.error("Erreur vérification produit:", error);
+                    return res.status(500).json({ error: "Erreur lors de la vérification du produit" });
                 }
-                
-                // Mettre à jour le prix total de la commande
-                const updateOrderTotal = `
-                    UPDATE orders o 
-                    SET total_price = (
-                        SELECT SUM(p.price * oi.quantity) 
-                        FROM orders_item oi 
-                        JOIN products p ON oi.product_id = p.id_product 
-                        WHERE oi.order_id = ?
-                    )
-                    WHERE o.id_order = ?
+                if (productResults.length === 0) {
+                    return res.status(404).json({ error: "Produit non trouvé" });
+                }
+                if (!productResults[0].availability) {
+                    return res.status(400).json({ error: "Produit non disponible" });
+                }
+
+                // Ajouter le produit à la commande - Notez le changement de "orders_item" à "order_items"
+                const addToOrder = `
+                    INSERT INTO order_items (order_id, product_id, quantity, special_instructions) 
+                    VALUES (?, ?, ?, ?)
                 `;
-                bdd.query(updateOrderTotal, [order_id, order_id], (error) => {
+                
+                bdd.query(addToOrder, [order_id, product_id, quantity, special_instructions], (error, insertResults) => {
                     if (error) {
-                        return res.status(500).json({ error: "Erreur lors de la mise à jour du prix total" });
+                        console.error("Erreur insertion commande:", error);
+                        return res.status(500).json({ 
+                            error: "Erreur lors de l'ajout du produit",
+                            details: error.message
+                        });
                     }
-                    res.json({ message: "Produit ajouté à la commande avec succès" });
+                    
+                    // Mettre à jour le prix total de la commande - Notez le changement ici aussi
+                    const updateOrderTotal = `
+                        UPDATE orders o 
+                        SET total_price = (
+                            SELECT SUM(p.price * oi.quantity) 
+                            FROM order_items oi 
+                            JOIN products p ON oi.product_id = p.id_product 
+                            WHERE oi.order_id = ?
+                        )
+                        WHERE o.id_order = ?
+                    `;
+                    
+                    bdd.query(updateOrderTotal, [order_id, order_id], (error) => {
+                        if (error) {
+                            console.error("Erreur mise à jour total:", error);
+                            return res.status(500).json({ error: "Erreur lors de la mise à jour du prix total" });
+                        }
+                        res.json({ 
+                            message: "Produit ajouté à la commande avec succès",
+                            orderId: order_id,
+                            insertId: insertResults.insertId
+                        });
+                    });
                 });
             });
         });
     } catch (error) {
-        res.status(500).json({ error: "Erreur serveur" });
+        console.error("Erreur générale:", error);
+        res.status(500).json({ error: "Erreur serveur", details: error.message });
     }
 });
 
@@ -94,4 +122,4 @@ router.put("/updateQuantity", auth.authentification, (req, res) => {
     }
 });
 
-module.exports = router;
+module.exports = router
