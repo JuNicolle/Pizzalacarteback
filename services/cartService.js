@@ -6,7 +6,7 @@ class CartService {
         try {
             const [result] = await bdd.promise().query(
                 `INSERT INTO orders (user_id, location_id, status, total_price) 
-                 VALUES (?, ?, 'En cours', 0)`,
+                 VALUES (?, ?, 'En attente', 0)`,
                 [userId, locationId]
             );
             return result.insertId;
@@ -17,6 +17,8 @@ class CartService {
 
     // Ajouter un produit au panier
     async addToCart(orderId, productId, quantity, specialInstructions) {
+
+        
         try {
             await bdd.promise().beginTransaction();
 

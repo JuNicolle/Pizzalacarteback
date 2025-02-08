@@ -11,34 +11,21 @@ const cartService = require("../services/cartService");
 // Créer une nouvelle commande avec ses items
 router.post("/createOrder", auth.authentification, async (req, res) => {
     const userId = req.id_user;
-    const { location_id, items } = req.body;
+    const { location_id } = req.body;
 
     try {
-        // Créer un nouveau panier
+        // Créer un nouveau panier vide
         const orderId = await cartService.createCart(userId, location_id);
 
-        // Ajouter chaque item au panier
-        for (const item of items) {
-            await cartService.addToCart(
-                orderId, 
-                item.product_id, 
-                item.quantity, 
-                item.special_instructions
-            );
-        }
-
-        // Récupérer le panier complet avec les totaux
-        const cart = await cartService.getCart(orderId);
-
         res.status(201).json({
-            message: "Commande créée avec succès",
-            cart: cart
+            message: "Panier créé avec succès",
+            orderId: orderId
         });
 
     } catch (error) {
-        console.error('Erreur lors de la création de la commande:', error);
+        console.error('Erreur lors de la création du panier:', error);
         res.status(500).json({ 
-            message: "Erreur lors de la création de la commande",
+            message: "Erreur lors de la création du panier",
             error: error.message 
         });
     }
@@ -49,6 +36,8 @@ router.post("/createOrder", auth.authentification, async (req, res) => {
 router.post("/addOrderItem", auth.authentification, async (req, res) => {
     try {
         const { order_id, product_id, quantity, special_instructions } = req.body;
+
+
 
         await cartService.addToCart(order_id, product_id, quantity, special_instructions);
         const updatedCart = await cartService.getCart(order_id);
@@ -95,7 +84,7 @@ router.put("/updateQuantity/:orderId/:itemId", auth.authentification, async (req
 
 router.get("/getAllOrders", auth.authentification, async (req, res) => {
     if (req.role == "client") {
-        console.log("vous n'avez pas accès à cette fonctionnalité");
+
         res
             .status(403)
             .json({ message: "Vous n'avez pas accès à cette fonctionnalité." });
@@ -158,7 +147,7 @@ router.get("/getCart/:orderId", auth.authentification, (req, res) => {
             totalPrice: results[0].total_price,
             desiredTime: results[0].desired_time,
             items: results.map(item => ({
-                orderItemId: item.id_order_item,
+                id_order_item: item.id_order_item,
                 productId: item.id_product,
                 name: item.name,
                 price: item.price,
@@ -225,24 +214,37 @@ router.put("/updateOrderStatus/:orderId", auth.authentification, async (req, res
     const { status } = req.body;
     const orderId = req.params.orderId;
 
-    const validStatus = ['En cours', 'Terminee', 'Annulee'];
+    // Liste des statuts valides
+    const validStatus = ['En attente', 'En cours', 'Terminee', 'Annulee'];
+    
     if (!validStatus.includes(status)) {
         return res.status(400).json({ message: "Statut invalide" });
     }
 
-    bdd.query(
-        'UPDATE orders SET status = ? WHERE id_order = ?',
-        [status, orderId, req.id_user],
-        (error, result) => {
-            if (error) throw error;
-            
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ message: "Commande non trouvée" });
-            }
-            
-            res.status(200).json({ message: "Statut mis à jour avec succès" });
-        }
-    );
+    try {
+        // Promisify la requête SQL
+        const updateQuery = 'UPDATE orders SET status = ? WHERE id_order = ?';
+        
+        // Utiliser une Promise pour la requête SQL
+        await new Promise((resolve, reject) => {
+            bdd.query(updateQuery, [status, orderId], (error, result) => {
+                if (error) reject(error);
+                else resolve(result);
+            });
+        });
+        
+        res.status(200).json({ 
+            message: "Statut mis à jour avec succès",
+            newStatus: status 
+        });
+        
+    } catch (error) {
+        console.error('Erreur lors de la mise à jour du statut:', error);
+        res.status(500).json({ 
+            message: "Erreur lors de la mise à jour du statut",
+            error: error.message 
+        });
+    }
 });
 
 // Récupérer le contenu d'un panier
@@ -272,19 +274,75 @@ router.get("/getCart/:orderId", auth.authentification, async (req, res) => {
 
 router.get("/getUserOrders/:userId", auth.authentification, async (req, res) => {
     const userId = req.params.userId;
-    const selectUserOrders = "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC";
+
     
-    bdd.query(selectUserOrders, [userId], (error, result) => {
-        if (error) throw error;
-        res.status(200).json(result);
-    });
+    const selectUserOrders = `
+        SELECT orders.id_order, orders.status, orders.created_at, orders.desired_time, orders.total_price, order_items.id_order_item, order_items.quantity, products.name as product_name, products.price as product_price, (order_items.quantity * products.price) as line_total FROM orders  LEFT JOIN order_items  ON orders.id_order = order_items.order_id LEFT JOIN products  ON order_items.product_id = products.id_product WHERE orders.user_id = ? AND orders.status != 'En attente'  ORDER BY orders.created_at DESC;
+        `;
+    
+    try {
+
+        const results = await new Promise((resolve, reject) => {
+            bdd.query(selectUserOrders, [userId], (error, results) => {
+                if (error) {
+                    console.error('Erreur SQL:', error);
+                    reject(error);
+                } else {
+                    // Grouper les résultats par commande
+                    const orders = results.reduce((acc, row) => {
+                        const existingOrder = acc.find(o => o.id_order === row.id_order);
+                        
+                        if (!existingOrder) {
+                            acc.push({
+                                id_order: row.id_order,
+                                status: row.status,
+                                created_at: row.created_at,
+                                desired_time: row.desired_time,
+                                total_price: row.total_price,
+                                items: [{
+                                    id_order_item: row.id_order_item,
+                                    product_id: row.product_id,
+                                    name: row.name,
+                                    quantity: row.quantity,
+                                    price: row.price,
+                                    image_url: row.image_url,
+                                    special_instructions: row.special_instructions
+                                }]
+                            });
+                        } else {
+                            existingOrder.items.push({
+                                id_order_item: row.id_order_item,
+                                product_id: row.product_id,
+                                name: row.name,
+                                quantity: row.quantity,
+                                price: row.price,
+                                image_url: row.image_url,
+                                special_instructions: row.special_instructions
+                            });
+                        }
+                        return acc;
+                    }, []);
+
+                    resolve(orders);
+                }
+            });
+        });
+
+        res.status(200).json(results);
+    } catch (error) {
+        console.error("Erreur:", error);
+        res.status(500).json({ 
+            message: "Erreur serveur",
+            details: error.message 
+        });
+    }
 });
 
 // Lire toutes les commandes du jour
 
 router.get("/getDayOrders", auth.authentification, async (req, res) => {
     if (req.role == "client") {
-        console.log("vous n'avez pas accès à cette fonctionnalité");
+
         res
             .status(403)
             .json({ message: "Vous n'avez pas accès à cette fonctionnalité." });
@@ -305,7 +363,7 @@ router.get("/getDayOrders", auth.authentification, async (req, res) => {
 
 router.get("/getWeekOrders", auth.authentification, async (req, res) => {
     if (req.role == "client") {
-        console.log("vous n'avez pas accès à cette fonctionnalité");
+
         res
             .status(403)
             .json({ message: "Vous n'avez pas accès à cette fonctionnalité." });
@@ -326,7 +384,7 @@ router.get("/getWeekOrders", auth.authentification, async (req, res) => {
 
 router.get("/getMonthOrders", auth.authentification, async (req, res) => {
     if (req.role == "client") {
-        console.log("vous n'avez pas accès à cette fonctionnalité");
+  
         res
             .status(403)
             .json({ message: "Vous n'avez pas accès à cette fonctionnalité." });

@@ -49,7 +49,7 @@ router.post("/createProduct", auth.authentification, async (req, res) => {
 
 router.get("/readProducts", (req, res) => {
   const readProducts =
-    "SELECT name, category_id, description, price, image_url, allergens, availability FROM products;";
+    "SELECT id_product, name, category_id, description, price, image_url, allergens, availability FROM products;";
   bdd.query(readProducts, [], (error, results) => {
     if (error) throw error;
     res.json(results);

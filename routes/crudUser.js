@@ -4,7 +4,6 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const auth = require("../middleware/auth");
-const config = require("../config/config.json");
 const MailService = require("../services/mail.services");
 const { authentification } = require("../middleware/auth");
 
@@ -70,7 +69,7 @@ router.post("/createUser", async (req, res) => {
   // Consultation de tout les utilisateurs 
 
   router.get("/readUsers", (req, res) => {
-    const readUsers = "SELECT name, first_name, email, password, address, city, zipcode, phone FROM users;";
+    const readUsers = "SELECT id_user, name, first_name, email, password, role, address, city, zipcode, phone FROM users;";
     bdd.query(readUsers, (error, results) => {
       if (error) throw error;
       res.json(results);
@@ -82,37 +81,41 @@ router.post("/createUser", async (req, res) => {
 // http://127.0.0.1:3000/pizzalacarte/loginUser
 
 router.post("/loginUser", (req, res) => {
-    const { email, password } = req.body;
-    // Vérification des données envoyées
-    if (!email || !password) {
-      return res.json({ error: "Email et mot de passe sont requis." });
+  const { email, password } = req.body;
+  
+  console.log("Tentative de connexion pour email:", email);
+  
+  if (!email || !password) {
+    return res.json({ error: "Email et mot de passe sont requis." });
+  }
+  
+  const checkUser = "SELECT * FROM users WHERE email = ?;";
+  bdd.query(checkUser, [email], (err, results) => {
+    if (err) throw err;
+
+    if (results.length > 0) {
+      const user = results[0];
+      
+      bcrypt.compare(password, user.password, (error, result) => {
+        if (error) {
+          console.error("Erreur bcrypt:", error);
+          throw error;
+        }
+        if (result) {
+          const token = jwt.sign({ id: user.id_user, email: user.email, role: user.role}, "secretkey", {
+            expiresIn: "1h",
+          });
+          res.json({ message: "Connexion réussie !", token });
+        } else {
+          res.status(401).json({ error: "Email ou mot de passe incorrect" });
+        }
+      });
+    } else {
+      res.status(404).send("Utilisateur non trouvé");
     }
-    const checkUser ="SELECT * FROM users WHERE email = ?;";
-    bdd.query(checkUser, [email], (err, results) => {
-      if (err) throw err;
-      // console.log("Password envoyé : ", password);
-      if (results.length > 0) {
-        const user = results[0];
-        // console.log("Password hashé : ", user.password);
-        console.log(user);
-        bcrypt.compare(password, user.password, (error, result) => {
-          // console.log(result);
-          if (error) throw error;
-          if (result) {
-            const token = jwt.sign({ id: user.id_user, email: user.email, role: user.role}, "secretkey", {
-              expiresIn: "1h",
-            });
-            res.json({ message: "Connexion réussie !", token });
-          console.log("Connexion réussie :", token);
-          } else {
-            res.status(401).json({ error: "Email ou mot de passe incorrect" });
-          }
-        });
-      } else {
-        res.status(404).send("Utilisateur non trouvé");
-      }
-    });
   });
+});
+
 
   // route de déconnexion
 router.post("/logout", (req, res) => {
@@ -143,7 +146,7 @@ router.get("/readUserById/:id", auth.authentification, (req, res) => {
 
   // route suppression des utilisateurs 
 
-router.post("/deleteUser/:id", auth.authentification, (req, res) => {
+router.delete("/deleteUser/:id", auth.authentification, (req, res) => {
     if (req.role == "client") {
       return res.status(401).send("Vous n'avez pas les droits pour supprimer un utilisateur");
     }
@@ -160,93 +163,95 @@ router.post("/deleteUser/:id", auth.authentification, (req, res) => {
     });
   });
 
-  router.post("/updateUser/:id",  auth.authentification, (req, res) => {
-    const { id } = req.params;
-    const {
-        name,
-        first_name,
-        email,
-        password,
-        address,
-        city,
-        zipcode,
-        phone
-      } = req.body;
+ // Supprimez les deux anciennes routes updateUser et remplacez-les par celle-ci :
+ router.post("/updateUser/:id", auth.authentification, async (req, res) => {
+  const { id } = req.params;
+  const {
+      name,
+      first_name,
+      email,
+      password,
+      address,
+      city,
+      zipcode,
+      phone
+  } = req.body;
 
-      if (!name || !first_name || !email || !password || !address || !city || !zipcode || !phone) {
-        return res.status(400).send("Merci de compléter tout les champs.");
-    }
+  try {
+      const checkUser = "SELECT * FROM users WHERE id_user = ?";
+      bdd.query(checkUser, [id], async (error, results) => {
+          if (error) {
+              console.error("Erreur lors de la vérification :", error);
+              return res.status(500).json({ error: "Erreur serveur" });
+          }
+          
+          if (results.length === 0) {
+              return res.status(404).json({ error: "Utilisateur introuvable" });
+          }
 
-     let queryParams= [];
-      // let bdd.query(updateUser, [nom, prenom, role, dateNaissance, mail, telephone, adresse, codePostal, ville, pays, idUser], (error) => {
-      if (req.role == "client") {
-        console.log("vous n aurez pas accès aux modifications du rôle");
-        updateUser = "UPDATE users SET name = ?, first_name = ?, email=?, password= ?, address = ?, city = ?, zipcode = ?, phone = ? WHERE id_user = ?;";
-       queryParams = [name, first_name, email, password, address, city, zipcode, phone, id]
-      }else{
-        console.log("vous pouvez modifier meme le role");
-        updateUser = "UPDATE users SET name = ?, first_name = ?, email=?, password= ?, address = ?, city = ?, zipcode = ?, phone = ? WHERE id_user = ?;";
-        queryParams = [name, first_name, email, password, address, city, zipcode, phone, id]
-    }
-      bdd.query(updateUser, queryParams, (error, results) => {
-        if (error){
-          console.error("Erreur lors de la mise à jour de l'utilisateur :", error);
-          return res.status(500).send("Une erreur est survenue lors de la mise à jour de l'utilisateur.");
-        }
-        res.send("Données mises à jour");
+          let updateFields = [];
+          let queryParams = [];
+          
+          // Ne mettre à jour que si la valeur est définie et non nulle
+          if (name !== undefined && name !== null && name !== '') {
+              updateFields.push("name = ?");
+              queryParams.push(name);
+          }
+          if (first_name !== undefined && first_name !== null && first_name !== '') {
+              updateFields.push("first_name = ?");
+              queryParams.push(first_name);
+          }
+          if (email !== undefined && email !== null && email !== '') {
+              updateFields.push("email = ?");
+              queryParams.push(email);
+          }
+          if (password !== undefined && password !== null && password !== '') {
+              const hashedPassword = await bcrypt.hash(password, 10);
+              updateFields.push("password = ?");
+              queryParams.push(hashedPassword);
+          }
+          if (address !== undefined && address !== null && address !== '') {
+              updateFields.push("address = ?");
+              queryParams.push(address);
+          }
+          if (city !== undefined && city !== null && city !== '') {
+              updateFields.push("city = ?");
+              queryParams.push(city);
+          }
+          if (zipcode !== undefined && zipcode !== null && zipcode !== '') {
+              updateFields.push("zipcode = ?");
+              queryParams.push(zipcode);
+          }
+          if (phone !== undefined && phone !== null && phone !== '') {
+              updateFields.push("phone = ?");
+              queryParams.push(phone);
+          }
+
+          if (updateFields.length === 0) {
+              return res.status(400).json({ error: "Aucun champ à mettre à jour" });
+          }
+
+          queryParams.push(id);
+          
+          const updateQuery = `UPDATE users SET ${updateFields.join(", ")} WHERE id_user = ?`;
+          
+          bdd.query(updateQuery, queryParams, (updateError, updateResult) => {
+              if (updateError) {
+                  console.error("Erreur lors de la mise à jour :", updateError);
+                  return res.status(500).json({ error: "Erreur lors de la mise à jour" });
+              }
+
+              res.status(200).json({ 
+                  message: "Utilisateur mis à jour avec succès",
+                  updateFields: updateFields // Pour debug
+              });
+          });
       });
-    });
-
-
-// Route MAJ de l'utilisateur par son ID
-
-router.post('/updateUser/:id', (req, res) => {
-    if (req.role == 'client') {
-        console.log("vous n'avez pas accès à cette fonctionnalité");
-        res.status(403).json({ message: "Vous n'avez pas accès à cette fonctionnalité." });
-      } else {
-    const { id } = req.params;
-    const {
-        name,
-        first_name,
-        email,
-        password,
-        address,
-        city,
-        zipcode,
-        phone
-      } = req.body;
-
-    bdd.query("SELECT * FROM users WHERE id_user = ?", [id], (error, results) => {
-        if (error) {
-            console.error("Erreur lors de la vérification :", error);
-            res.status(500).json({ error: "Erreur serveur" });
-            return;
-        }
-        if (results.length === 0) {
-            res.status(404).json({ error: "Utilisateur introuvable" });
-            return;
-        }
-
-        const updateUser =  "UPDATE users SET name = ?, first_name = ?, email = ?, password = ?, address = ?, city = ?, zipcode = ?, phone = ? WHERE id_user = ?;"
-        bdd.query(updateUser, [name,
-            first_name,
-            email,
-            password,
-            address,
-            city,
-            zipcode,
-            phone,
-            id], (erreur, results) => {
-            if (erreur) {
-                console.error("Erreur lors de la modification :", erreur);
-                res.status(500).json({ error: "Erreur lors de la modification des données" });
-                return;
-            }
-            res.json(results);
-        });
-    })};
-  });
+  } catch (error) {
+      console.error("Erreur :", error);
+      res.status(500).json({ error: "Erreur serveur" });
+  }
+});
 
 // Pour recuperer son profil
 router.get("/me", authentification, (req, res) => {
@@ -261,7 +266,7 @@ router.get("/me", authentification, (req, res) => {
 });
 
 // Route pour demander une réinitialisation de mot de passe
-router.post("/forgotPassword", async (req, res) => {
+router.post("/sendCode", async (req, res) => {
   const { email } = req.body;
 
   try {
@@ -308,7 +313,19 @@ router.post("/forgotPassword", async (req, res) => {
 // Route pour réinitialiser le mot de passe avec le token
 
 router.post("/resetPassword", async (req, res) => {
+  console.log("🔍 Requête brute reçue :", req.body);
   const { email, token, newPassword } = req.body;
+
+  console.log("🔍 Requête reçue sur /resetPassword");
+  console.log("Email :", email);
+  console.log("Token reçu :", token);
+  console.log("Nouveau mot de passe :", newPassword);
+
+  if (!email || !token || !newPassword) {
+      console.log("❌ Données manquantes !");
+      return res.status(400).send("Données manquantes.");
+      
+  }
 
   try {
       const verifyToken = "SELECT * FROM users WHERE email = ? AND reset_token = ? AND reset_token_expiration > NOW();";
