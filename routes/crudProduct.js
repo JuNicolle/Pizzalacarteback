@@ -48,8 +48,20 @@ router.post("/createProduct", auth.authentification, async (req, res) => {
 // Consultation de tout les produits - FONCTIONNE
 
 router.get("/readProducts", (req, res) => {
-  const readProducts =
-    "SELECT id_product, name, category_id, description, price, image_url, allergens, availability FROM products;";
+  const readProducts = `
+    SELECT 
+      p.id_product, 
+      p.name, 
+      p.category_id,
+      pc.name as category_name, 
+      p.description, 
+      p.price, 
+      p.image_url, 
+      p.allergens, 
+      p.availability 
+    FROM products p
+    LEFT JOIN product_categories pc ON p.category_id = pc.id_category;`;
+    
   bdd.query(readProducts, [], (error, results) => {
     if (error) throw error;
     res.json(results);
@@ -60,8 +72,20 @@ router.get("/readProducts", (req, res) => {
 
 router.get("/readProductById/:idProduct", (req, res) => {
   const { idProduct } = req.params;
-  const readProductById =
-    "SELECT name, category_id, description, price, image_url, allergens, availability FROM products WHERE id_product = ?;";
+  const readProductById = `
+    SELECT 
+      p.name, 
+      p.category_id,
+      pc.name as category_name, 
+      p.description, 
+      p.price, 
+      p.image_url, 
+      p.allergens, 
+      p.availability 
+    FROM products p
+    LEFT JOIN product_categories pc ON p.category_id = pc.id_category
+    WHERE p.id_product = ?;`;
+    
   bdd.query(readProductById, [idProduct], (error, results) => {
     if (error) throw error;
     res.json(results);
