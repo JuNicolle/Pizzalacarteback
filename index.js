@@ -41,6 +41,6 @@ app.use(
 
 app.use("/pizzalacarte", crudUser, crudProduct, crudCategory, crudLocation, crudOrder, crudOrderItems);
 
-app.listen(3000, () => {
+app.listen(3000, '0.0.0.0', () => {
   console.log("Serveur lancé sur le port 3000");
 });

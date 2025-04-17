@@ -96,4 +96,44 @@ router.delete("/deleteLocation/:id", auth.authentification, async (req, res) => 
     });
 });
 
+// Récupérer les emplacements du jour actuel
+router.get("/getTodayLocations", async (req, res) => {
+    try {
+        // Tableau des jours de la semaine en français
+        const daysWeek = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+        
+        // Obtenir le jour actuel (0 = Dimanche, 1 = Lundi, etc.)
+        const date = new Date();
+        const actualDay = daysWeek[date.getDay()];
+        
+        // Requête SQL utilisant LIKE pour trouver les emplacements correspondants au jour actuel
+        const readLocationsToday = `
+            SELECT * FROM locations 
+            WHERE schedule LIKE ? AND active = 1
+            ORDER BY 
+                CASE 
+                    WHEN schedule LIKE ? THEN 0
+                    WHEN schedule LIKE ? THEN 1
+                    ELSE 2
+                END
+        `;
+        
+        // Paramètres pour rechercher les correspondances du jour actuel (matin et soir)
+        bdd.query(
+            readLocationsToday, 
+            [`%${actualDay}%`, `%${actualDay} Midi%`, `%${actualDay} Soir%`], 
+            (error, result) => {
+                if (error) {
+                    console.error("Erreur lors de la récupération des emplacements:", error);
+                    return res.status(500).json({ message: "Erreur serveur" });
+                }
+                res.status(200).json(result);
+            }
+        );
+    } catch (error) {
+        console.error("Erreur:", error);
+        res.status(500).json({ message: "Erreur serveur", error: error.message });
+    }
+});
+
 module.exports = router;

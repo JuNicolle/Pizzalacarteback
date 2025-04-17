@@ -24,11 +24,36 @@ class MailService {
             throw new Error('Erreur lors de l\'envoi de l\'email de bienvenue');
         }
     }
-    
+
+    static async sendLoginLimitEmail(userEmail, userName, resetToken) {
+        try {
+            const mailOptions = {
+                from: config.email.user,
+                to: userEmail,
+                subject: 'Sécurité de votre compte - Pizza La Carte',
+                html: `
+                <h1>Alerte de sécurité</h1>
+                <p>Bonjour ${userName},</p>
+                <p>Nous avons détecté plusieurs tentatives de connexion échouées sur votre compte.</p>
+                <p>Si c'était vous, vous pouvez utiliser le code ci-dessous pour réinitialiser votre mot de passe :</p>
+                <p style="font-size: 24px; font-weight: bold; color: #4a90e2;">
+                    Code de réinitialisation : ${resetToken}
+                </p>
+                <p>Si vous n'avez pas tenté de vous connecter récemment, nous vous recommandons de réinitialiser votre mot de passe immédiatement.</p>
+                <p>L'équipe Pizza La Carte</p>
+            `
+            };
+
+            return await transporter.sendMail(mailOptions);
+        } catch (error) {
+            console.error('Erreur envoi email de sécurité:', error);
+            throw new Error('Erreur lors de l\'envoi de l\'email d\'alerte de sécurité');
+        }
+    }
+
+
     static async sendPasswordResetEmail(userEmail, resetToken) {
         try {
-            console.log('Tentative d\'envoi d\'email de reset à:', userEmail);
-            console.log('Token généré:', resetToken);
     
             const mailOptions = {
                 from: config.email.user,
@@ -45,15 +70,14 @@ class MailService {
                 `
             };
             
-            console.log('Options email configurées');
             const result = await transporter.sendMail(mailOptions);
-            console.log('Résultat envoi:', result);
             return result;
         } catch (error) {
-            console.error('Erreur détaillée:', error);
             throw new Error('Erreur lors de l\'envoi de l\'email de réinitialisation');
         }
     }
 }
+
+
 
 module.exports = MailService;

@@ -1,13 +1,11 @@
 const express = require("express");
 const bdd = require("../bdd");
 const router = express.Router();
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const auth = require("../middleware/auth");
 
 // route creation produit entre le code et la BDD - FONCTIONNE
 
-router.post("/createProduct", auth.authentification, async (req, res) => {
+router.post("/createProduct", auth.authentification, (req, res) => {
   if (req.role == "client") {
     console.log("vous n'avez pas accès à cette fonctionnalité");
     res

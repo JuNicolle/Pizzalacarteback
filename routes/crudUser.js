@@ -81,39 +81,89 @@ router.post("/createUser", async (req, res) => {
 // http://127.0.0.1:3000/pizzalacarte/loginUser
 
 router.post("/loginUser", (req, res) => {
-  const { email, password } = req.body;
-  
-  console.log("Tentative de connexion pour email:", email);
-  
-  if (!email || !password) {
-    return res.json({ error: "Email et mot de passe sont requis." });
-  }
-  
-  const checkUser = "SELECT * FROM users WHERE email = ?;";
-  bdd.query(checkUser, [email], (err, results) => {
-    if (err) throw err;
+    const { email, password } = req.body;
 
-    if (results.length > 0) {
-      const user = results[0];
-      
-      bcrypt.compare(password, user.password, (error, result) => {
-        if (error) {
-          console.error("Erreur bcrypt:", error);
-          throw error;
-        }
-        if (result) {
-          const token = jwt.sign({ id: user.id_user, email: user.email, role: user.role}, "secretkey", {
-            expiresIn: "1h",
-          });
-          res.json({ message: "Connexion réussie !", token });
-        } else {
-          res.status(401).json({ error: "Email ou mot de passe incorrect" });
-        }
-      });
-    } else {
-      res.status(404).send("Utilisateur non trouvé");
+    console.log("Tentative de connexion pour email:", email);
+
+    if (!email || !password) {
+        return res.json({ error: "Email et mot de passe sont requis." });
     }
-  });
+
+    const checkUser = "SELECT * FROM users WHERE email = ?;";
+    bdd.query(checkUser, [email], (err, results) => {
+        if (err) throw err;
+
+        if (results.length > 0) {
+            const user = results[0];
+
+            bcrypt.compare(password, user.password, async (error, result) => {
+                if (error) {
+                    console.error("Erreur bcrypt:", error);
+                    throw error;
+                }
+
+                if (result) {
+                    // Réinitialiser les tentatives en cas de succès
+                    const resetAttempts = "UPDATE users SET login_attempts = 0 WHERE id_user = ?";
+                    bdd.query(resetAttempts, [user.id_user]);
+
+                    const token = jwt.sign({ id: user.id_user, email: user.email, role: user.role}, "secretkey", {
+                        expiresIn: "1h",
+                    });
+                    res.json({ message: "Connexion réussie !", token });
+                } else {
+                    // Incrémenter le compteur de tentatives
+                    const maxAttempts = 3; // Nombre maximum de tentatives autorisées avant l'envoi d'email
+
+                    // Calculer la nouvelle valeur pour login_attempts
+                    const newAttempts = (user.login_attempts || 0) + 1;
+
+                    // Mettre à jour les tentatives dans la base de données
+                    const updateAttempts = "UPDATE users SET login_attempts = ? WHERE id_user = ?";
+                    bdd.query(updateAttempts, [newAttempts, user.id_user], async (updateErr) => {
+                        if (updateErr) throw updateErr;
+
+                        // Si le nombre maximum de tentatives est atteint, envoyer un email de réinitialisation
+                        if (newAttempts >= maxAttempts) {
+                            try {
+                                // Génère un token de 6 chiffres pour la réinitialisation de mot de passe
+                                const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+                                const tokenExpiration = new Date();
+                                tokenExpiration.setHours(tokenExpiration.getHours() + 1); // Expire dans 1h
+
+                                // Stocke le token en base de données
+                                const updateToken = "UPDATE users SET reset_token = ?, reset_token_expiration = ?, login_attempts = 0 WHERE id_user = ?;";
+
+                                bdd.query(updateToken, [resetToken, tokenExpiration, user.id_user], async (tokenErr) => {
+                                    if (tokenErr) throw tokenErr;
+
+                                    // Envoyer l'email de sécurité avec le token de réinitialisation
+                                    await MailService.sendLoginLimitEmail(user.email, user.name, resetToken);
+                                });
+
+                                return res.status(401).json({
+                                    error: "Trop de tentatives échouées. Un email de réinitialisation de mot de passe a été envoyé à votre adresse email."
+                                });
+                            } catch (emailError) {
+                                console.error("Erreur lors de l'envoi de l'email:", emailError);
+                                return res.status(401).json({
+                                    error: "Email ou mot de passe incorrect. Trop de tentatives."
+                                });
+                            }
+                        } else {
+                            const remainingAttempts = maxAttempts - newAttempts;
+                            return res.status(401).json({
+                                error: `Email ou mot de passe incorrect. Tentatives restantes: ${remainingAttempts}`
+                            });
+                        }
+                    });
+                }
+            });
+        } else {
+            // Ne pas donner d'informations sur l'existence ou non de l'utilisateur
+            res.status(401).json({ error: "Email ou mot de passe incorrect" });
+        }
+    });
 });
 
 
@@ -163,7 +213,6 @@ router.delete("/deleteUser/:id", auth.authentification, (req, res) => {
     });
   });
 
- // Supprimez les deux anciennes routes updateUser et remplacez-les par celle-ci :
  router.post("/updateUser/:id", auth.authentification, async (req, res) => {
   const { id } = req.params;
   const {
@@ -313,19 +362,12 @@ router.post("/sendCode", async (req, res) => {
 // Route pour réinitialiser le mot de passe avec le token
 
 router.post("/resetPassword", async (req, res) => {
-  console.log("🔍 Requête brute reçue :", req.body);
   const { email, token, newPassword } = req.body;
-
-  console.log("🔍 Requête reçue sur /resetPassword");
-  console.log("Email :", email);
-  console.log("Token reçu :", token);
-  console.log("Nouveau mot de passe :", newPassword);
 
   if (!email || !token || !newPassword) {
       console.log("❌ Données manquantes !");
       return res.status(400).send("Données manquantes.");
-      
-  }
+      }
 
   try {
       const verifyToken = "SELECT * FROM users WHERE email = ? AND reset_token = ? AND reset_token_expiration > NOW();";
@@ -353,6 +395,32 @@ router.post("/resetPassword", async (req, res) => {
       console.error(error);
       res.status(500).send("Une erreur s'est produite.");
   }
+});
+
+// Route permettant à un utilisateur de supprimer son propre compte
+router.delete("/deleteMyAccount", auth.authentification, (req, res) => {
+  const userId = req.id_user; // L'ID de l'utilisateur authentifié
+  
+  if (!userId) {
+    return res.status(401).json({ message: "Vous devez être connecté pour effectuer cette action." });
+  }
+  
+  const deleteUser = "DELETE FROM users WHERE id_user = ?;";
+  
+  bdd.query(deleteUser, [userId], (error, results) => {
+    if (error) {
+      console.error("Erreur lors de la suppression du compte:", error);
+      return res.status(500).json({ 
+        message: "Impossible de supprimer votre compte. Des réservations y sont peut-être encore associées." 
+      });
+    }
+    
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: "Compte utilisateur introuvable." });
+    }
+    
+    res.status(200).json({ message: "Votre compte a été supprimé avec succès." });
+  });
 });
     
 module.exports = router;
