@@ -6,63 +6,56 @@ const jwt = require("jsonwebtoken");
 const auth = require("../middleware/auth");
 const MailService = require("../services/mail.services");
 const { authentification } = require("../middleware/auth");
+const SimpleServerValidation = require('../middleware/simpleValidation');
+
 
 
 // route creation utilisateur entre le code et la BDD - FONCTIONNE
 // avec verification mail si deja existant pour éviter que le serveur plante en cas de tentative de doublon
 
 
-router.post("/createUser", async (req, res) => {
-  const {
-    name,
-    first_name,
-    email,
-    password,
-    address,
-    city,
-    zipcode,
-    phone
-  } = req.body;
+router.post("/createUser", SimpleServerValidation.validateUserRegistration, async (req, res) => {
+  console.log("=== INSCRIPTION AVEC VALIDATION ===");
+  console.log("Données nettoyées:", req.body);
+
+  const { name, first_name, email, password, address, city, zipcode, phone } = req.body;
 
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const insertUser =
-      "INSERT INTO users (name, first_name, email, password, address, city, zipcode, phone) VALUES (?,?,?,?,?,?,?,?);";
-    const checkMail = "SELECT * FROM users WHERE email LIKE ?;";
-
-    // Vérification si l'email existe déjà
-    bdd.query(checkMail, [email], async (error, result) => {
-      if (error) {
-        throw error;
-      }
-      if (result.length > 0) {
-        res.status(400).send("Email déjà utilisé");
-      } else {
-        // Insertion de l'utilisateur
-        bdd.query(
-          insertUser,
-          [name, first_name, email, hashedPassword, address, city, zipcode, phone],
-          async (error) => {
-            if (error) {
-              throw error;
-            }
-
-            try {
-              // Envoi de l'email de bienvenue
-              await MailService.sendWelcomeEmail(email, name);
-              res.send("Utilisateur créé avec succès !");
-            } catch (emailError) {
-              console.error("Erreur lors de l'envoi de l'email:", emailError);
-              res.send("Utilisateur créé avec succès, mais l'email n'a pas pu être envoyé.");
-            }
+      // Vérifier si l'email existe déjà
+      bdd.query("SELECT email FROM users WHERE email = ?", [email], async (err, results) => {
+          if (err) {
+              console.error(err);
+              return res.status(500).json({ error: "Erreur serveur" });
           }
-        );
-      }
-    });
+
+          if (results.length > 0) {
+              return res.status(400).json({ error: "Cet email est déjà utilisé" });
+          }
+
+          // Hasher le mot de passe
+          const saltRounds = 10;
+          const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+          const query = `INSERT INTO users (name, first_name, email, password, address, city, zipcode, phone, role) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'client')`;
+          
+          const values = [name, first_name, email, hashedPassword, address, city, zipcode, phone];
+
+          bdd.query(query, values, (err, results) => {
+              if (err) {
+                  console.error("Erreur SQL:", err);
+                  return res.status(500).json({ error: "Erreur lors de la création du compte" });
+              }
+
+              console.log("Utilisateur créé avec succès:", results.insertId);
+              res.status(201).json({ 
+                  message: "Compte créé avec succès"
+              });
+          });
+      });
   } catch (error) {
-    console.error(error);
-    res.status(500).send("Une erreur s'est produite.");
+      console.error("Erreur:", error);
+      res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
